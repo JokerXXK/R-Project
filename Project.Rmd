@@ -1,0 +1,485 @@
+---
+title: "Project"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, autodep = TRUE, cache.comments = TRUE, results = "hold")
+```
+
+
+```{r}
+## For reproducibility --- don't change this!
+set.seed(5801)
+```
+
+Step1：Load the DataSet 
+
+```{r}
+#weather_data = read.csv("https://raw.githubusercontent.com/JokerXXK/R-Project/refs/heads/main/weather_forecast_data.csv")
+weather_data = read.csv("C:/Users/Administrator/Desktop/reference/Statistical Computing/course project/weather_forecast_data.csv")
+```
+
+Step2: Summarize the statistics
+
+```{r}
+head(weather_data)
+
+library(knitr)
+
+# 使用 kable 输出 summary
+summary_table <- summary(weather_data)
+kable(summary_table)
+
+```
+step3: Identify duplicate and missing values
+
+```{r}
+# Print missing values in the dataset
+cat('--- Missing Values in dataset ---\n')
+weather_data_missing <- colSums(is.na(weather_data))
+print(weather_data_missing)
+cat('\n')
+
+# Check for duplicate rows in the dataset
+weather_data_duplicates <- sum(duplicated(weather_data))
+cat(sprintf("Number of duplicate rows in the dataset: %d\n", weather_data_duplicates))
+
+```
+
+Step4: Categorical variables transformed to factors
+
+
+```{r}
+unique(weather_data$Rain)
+weather_data$Rain <- gsub(" ", "_", as.character(weather_data$Rain))
+unique(weather_data$Rain)
+weather_data$Rain <- factor(weather_data$Rain, levels = c("no_rain", "rain"))
+```
+step5: scatter plot shows the relationships between the features and their potential influence on predicting Rain
+
+
+```{r}
+library(GGally)
+library(ggplot2)
+
+# 使用 ggpairs 并设置自定义颜色
+pairplot <- ggpairs(weather_data[,1:5],  # 使用原始数据框 weather_data
+                    mapping = aes(color = weather_data$Rain),  # 根据 Rain 列来着色
+                    diag = list(continuous = "densityDiag"),  # 对角线显示密度图
+                    lower = list(continuous = "points"),  # 左下角显示散点图
+                    upper = list(continuous = "points")) 
+
+# 显示图形
+print(pairplot)
+
+```
+
+
+step6: Illustrated the strength of relationships among meteorological variables
+
+```{r}
+# 加载所需的包
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("reshape2")) install.packages("reshape2")
+library(ggplot2)
+library(reshape2)
+
+# 计算相关矩阵并转换为长格式
+correlation_matrix <- cor(weather_data[,-6])  # 排除不需要的列（例如：'Rain' 列）
+correlation_long <- melt(correlation_matrix)
+
+# 绘制热图并添加相关系数标签
+ggplot(correlation_long, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +  # 绘制热图
+  geom_text(aes(label = round(value, 2)), color = "black", size = 4) +  # 添加相关系数标签
+  scale_fill_gradient2(low = "blue", high = "red", mid = "yellow", midpoint = 0,
+                       limit = c(-1, 1), space = "Lab",
+                       name = "Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  coord_fixed() +
+  labs(title = "Correlation Heatmap", x = "", y = "")
+
+
+```
+
+
+step7: Boxplots Compare feature distributions across rainy and non-rainy days.
+
+```{r}
+library(gridExtra)
+
+# 变量列表
+features_to_plot <- c('Humidity', 'Cloud_Cover', 'Temperature', 'Pressure', 'Wind_Speed')
+
+# 创建一个空的列表来存储每个箱线图
+plot_list <- list()
+
+# 循环绘制每个特征的箱线图
+for (feature in features_to_plot) {
+  p <- ggplot(weather_data, aes(x = Rain, y = .data[[feature]], fill = factor(Rain))) +
+    geom_boxplot() +
+    labs(title = paste("Boxplot of", feature), x = "Rain", y = feature) +
+    scale_x_discrete(labels = c("No Rain", "Rain")) +  # 显示 "No Rain" 和 "Rain"
+    scale_fill_manual(values = c("blue", "red")) +  # 设置颜色
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # 将每个图形添加到列表中
+  plot_list[[feature]] <- p
+}
+
+# 使用 grid.arrange() 将所有箱线图显示在一个窗口中
+grid.arrange(grobs = plot_list, ncol = 3)  # 设置每行显示 3 张图，自动换行
+
+```
+
+step 8: Using T-test to figure out features that significantly correlate with the occurrence of rain
+
+```{r}
+
+rain_data <- weather_data[weather_data$Rain == "rain", ]
+no_rain_data <- weather_data[weather_data$Rain == "no_rain", ]
+
+# 特征列表
+features_to_test <- c('Humidity', 'Cloud_Cover', 'Temperature', 'Pressure', 'Wind_Speed')
+
+# 存储 t 检验结果的列表
+t_test_results <- list()
+
+# 循环进行 t 检验
+for (feature in features_to_test) {
+  # 进行独立样本 t 检验 (不假定方差相等)
+  t_test_result <- t.test(rain_data[[feature]], no_rain_data[[feature]], var.equal = FALSE)
+  
+  # 提取 t 统计量和 p 值
+  t_stat <- t_test_result$statistic
+  p_value <- t_test_result$p.value
+  
+  # 将结果存储到列表中
+  t_test_results[[feature]] <- list(t_statistic = t_stat, p_value = p_value)
+  
+  # 动态输出假设检验结果
+  if (p_value < 0.05) {
+    cat(sprintf("For %s:\n", feature))
+    cat(sprintf("  t-statistic = %.4f, p-value = %.4e\n", t_stat, p_value))
+    cat("  Result: Reject the Null Hypothesis (significant difference in means)\n\n")
+  } else {
+    cat(sprintf("For %s:\n", feature))
+    cat(sprintf("  t-statistic = %.4f, p-value = %.4e\n", t_stat, p_value))
+    cat("  Result: Fail to reject the Null Hypothesis (no significant difference in means)\n\n")
+  }
+}
+
+# 将 t 检验结果展示为数据框
+t_test_results_df <- data.frame(
+  t_statistic = sapply(t_test_results, function(x) x$t_statistic),
+  p_value = sapply(t_test_results, function(x) x$p_value)
+)
+
+# 打印 t 检验结果数据框
+print(t_test_results_df)
+
+```
+step 9: Shapiro-Wilk tests and Q-Q plots are used to evaluate the normality of feature distributions
+
+```{r}
+par(mfrow = c(2,5))
+# 变量名列表
+vars <- c("Temperature", "Humidity", "Wind_Speed", "Cloud_Cover", "Pressure")
+
+# 对rain_data和no_rain_data分别进行Q-Q图绘制和Shapiro-Wilk正态性检验
+for (data_name in c("rain_data", "no_rain_data")) {
+  data <- get(data_name)  # 获取数据框
+  cat("\nResults for", data_name, ":\n")
+  
+  for (var in vars) {
+    # 绘制Q-Q图
+    qqnorm(data[[var]], 
+           main = paste("Q-Q plot for", var, "in", data_name),
+           cex.main = 0.6)  # 设置标题字体大小为默认的80%
+    qqline(data[[var]], col = "red")  # 添加参考线
+    
+    # 进行Shapiro-Wilk正态性检验
+    shapiro_test_result <- shapiro.test(data[[var]])
+    cat(paste("Variable:", var, "\n"))
+    print(shapiro_test_result)
+    cat("\n")
+  }
+}
+
+
+```
+step 10: Using Isolation Forest to identify the outliers
+
+
+```{r}
+library(isofor)
+set.seed(5801)
+# 选择数值型特征，去掉目标变量 'Rain'
+features <- weather_data[, -which(names(weather_data) == "Rain")]
+
+# 对特征进行标准化
+features_scaled <- scale(features)
+
+# 训练 Isolation Forest 模型
+iso_forest_model <- iForest(features_scaled)
+
+# 预测异常
+Anomaly_score <- predict(iso_forest_model, features_scaled)
+hist(Anomaly_score, breaks = 50, main = "Anomaly Score Distribution", xlab = "Anomaly Score")
+weather_data$Anomaly <- ifelse(Anomaly_score > 0.57, 1, 0)
+sum(weather_data$Anomaly == 1)
+```
+Step 11: clean the dataset (delete the outliers and insignificant features)
+
+
+```{r}
+weather_data_cleaned = weather_data[weather_data$Anomaly == 0,-which(names(weather_data) == "Anomaly")]  
+
+# 从数据中选择特征和目标变量
+
+x_cleaned <- weather_data_cleaned[, -which(names(weather_data_cleaned) %in% c("Rain"))]
+x_cleaned1 <- weather_data_cleaned[, -which(names(weather_data_cleaned) %in% c("Rain", "Pressure","Wind_Speed"))]
+y_cleaned <- weather_data_cleaned$Rain
+
+```
+
+Step 12 : using the distribution of rain variable to find class imbalance
+
+```{r}
+df <- data.frame(category = y_cleaned)
+ggplot(df, aes(x = category, fill = category)) +
+  geom_bar() +
+  labs(title = "Rain vs No Rain", x = "Category", y = "Frequency") +
+  scale_fill_manual(values = c("blue", "gray")) +
+  theme_minimal()
+```
+
+
+step 13: Using SMOTE oversampling method to balance the class
+
+```{r}
+# 安装并加载必要的包
+if (!require("caret")) install.packages("caret")
+if (!require("pROC")) install.packages("pROC")
+library(smotefamily)
+
+# 使用 SMOTE 进行过采样
+balanced_data <- SMOTE(x_cleaned, y_cleaned, K=4,dup_size = 0)
+balanced_data1 <- SMOTE(x_cleaned1, y_cleaned, K=4,dup_size = 0)
+
+# 提取平衡后的数据
+x_balanced <- balanced_data$data[, -ncol(balanced_data$data)]  # 特征
+y_balanced <- factor(balanced_data$data$class, levels = c("no_rain", "rain"))
+
+x_balanced1 <- balanced_data1$data[, -ncol(balanced_data1$data)]  # 特征
+y_balanced1 <- factor(balanced_data1$data$class, levels = c("no_rain", "rain"))
+
+```
+
+step 14: Check if rain and no_rain are balanced  
+
+```{r}
+df <- data.frame(category = y_balanced)
+ggplot(df, aes(x = category, fill = category)) +
+  geom_bar() +
+  labs(title = "Rain vs No Rain", x = "Category", y = "Frequency") +
+  scale_fill_manual(values = c("blue", "gray")) +
+  theme_minimal()
+```
+
+step 15: Feature standardization to get rid of the effect of different scale on modelling fitting
+
+```{r}
+
+# 检查特征和目标变量
+stopifnot(is.data.frame(x_balanced))
+stopifnot(is.factor(y_balanced))
+stopifnot(length(levels(y_balanced)) == 2)
+
+
+# 特征标准化
+preProc <- preProcess(x_balanced, method = c("center", "scale"))
+x_balanced_scaled <- predict(preProc, x_balanced)
+
+preProc1 <- preProcess(x_balanced1, method = c("center", "scale"))
+x_balanced_scaled1 <- predict(preProc1, x_balanced1)
+
+```
+
+step 16: select the appropriate models and different metric to assess the validity 
+
+```{r}
+
+custom_summary <- function(data, lev = NULL, model = NULL) {
+  # 计算AUC
+  roc <- twoClassSummary(data, lev = lev, model = model)
+  # 计算Accuracy
+  acc <- defaultSummary(data, lev = lev, model = model)
+  # 计算混淆矩阵
+  cm <- confusionMatrix(data$pred, data$obs,positive = lev[2])
+  
+  # 提取Sensitivity和Specificity
+  sensitivity <- cm$byClass["Sensitivity"]
+  specificity <- cm$byClass["Specificity"]
+
+  # 返回结果作为命名向量
+  c(acc["Accuracy"], roc["ROC"],Sensitivity = sensitivity, 
+    Specificity = specificity)
+}
+
+
+# 设置分层交叉验证（保证类在每个fold中比例得到保留）
+cv <- trainControl(
+  method = "cv", 
+  number = 10, 
+  savePredictions = "final", 
+  classProbs = TRUE, 
+  summaryFunction = custom_summary
+)
+
+# 模型列表
+model_list <- function(x_balanced_scaled,y_balanced) { list(
+  "Logistic Regression" = train(
+    x = x_balanced_scaled, 
+    y = y_balanced, 
+    method = "glm", 
+    family = "binomial", 
+    trControl = cv, 
+    metric = "ROC"
+  ),
+  "Decision Tree" = train(
+    x = x_balanced_scaled, 
+    y = y_balanced, 
+    method = "rpart", 
+    trControl = cv, 
+    metric = "ROC"
+  ),
+  "Random Forest" = train(
+    x = x_balanced_scaled, 
+    y = y_balanced, 
+    method = "rf", 
+    trControl = cv, 
+    metric = "ROC"
+  ),
+  "LDA" = train(
+    x = x_balanced_scaled, 
+    y = y_balanced, 
+    method = "lda", 
+    trControl = cv, 
+    metric = "ROC"
+  ),
+  "QDA" = train(
+    x = x_balanced_scaled, 
+    y = y_balanced, 
+    method = "qda", 
+    trControl = cv, 
+    metric = "ROC"
+  ),
+  "Naive Bayes" = train(
+    x = x_balanced_scaled, 
+    y = y_balanced, 
+    method = "nb", 
+    trControl = cv, 
+    metric = "ROC",
+    tuneGrid = expand.grid(usekernel = c(TRUE, FALSE), fL = 0, adjust = 1)
+  ),
+  "KNN" = train(
+    x = x_balanced_scaled, 
+    y = y_balanced, 
+    method = "knn", 
+    trControl = cv, 
+    metric = "ROC"
+  )
+)
+}
+
+
+```
+
+Step 17: Compare the Roc Curves of different models
+
+```{r}
+models = model_list(x_balanced_scaled,y_balanced)
+
+plot_single_roc_curve <- function(model, model_name,x_balanced_scaled,y_balanced) {
+  preds <- predict(model, x_balanced_scaled, type = "prob")
+  roc_obj <- roc(y_balanced, preds[, "rain"], levels = c("no_rain", "rain"), direction = "<")
+  plot(roc_obj, main = paste("ROC Curve:", model_name),xlim = c(1, 0))
+}
+
+
+Roc_curve_plot <- function(models,x_balanced_scaled,y_balanced){
+  par(mfrow = c(3, 3)) # 多图绘制框架
+  for (name in names(models)) {
+  model <- models[[name]]
+  plot_single_roc_curve(model, name,x_balanced_scaled,y_balanced)
+  }
+}
+
+Roc_curve_plot(models, x_balanced_scaled,y_balanced)
+
+```
+
+
+Step 18: Compare accuracy, auc, sensitivity and specificity of different models (all 5 features) 
+
+
+```{r}
+results <- function(models, x_balanced_scaled,y_balanced){
+  # 创建一个空的列表用于存储结果
+  cross_val_results <- list()
+  for (name in names(models)) {
+  model <- models[[name]]
+  accuracy <- mean(model$resample$Accuracy, na.rm = TRUE)  # 计算平均准确率，忽略NA值
+  auc <- mean(model$resample$ROC, na.rm = TRUE)            # 计算平均AUC，忽略NA值
+  # 计算平均灵敏度（Sensitivity），忽略NA值
+  sensitivity <- mean(model$resample$Sensitivity, na.rm = TRUE)
+  
+  # 计算平均特异性（Specificity），忽略NA值
+  specificity <- mean(model$resample$Specificity, na.rm = TRUE)
+  
+  # 将结果保存到cross_val_results
+  cross_val_results[[name]] <- c(Mean_Accuracy = accuracy, 
+                                  Mean_AUC = auc, 
+                                  Mean_Sensitivity = sensitivity, 
+                                  Mean_Specificity = specificity)
+  
+  }
+  return(cross_val_results)
+}
+
+
+
+metric <- function(cross_val_results){
+# 转换为数据框
+results_df <- as.data.frame(do.call(rbind, cross_val_results))
+results_df$Model <- rownames(results_df)
+results_df <- results_df[, c("Model", "Mean_Accuracy", "Mean_AUC","Mean_Sensitivity","Mean_Specificity")]
+
+# 按照 AUC 排序并输出
+results_df <- results_df[order(-results_df$Mean_AUC),]
+print(results_df,row.names = FALSE)
+
+# 选择最好的模型
+best_model_name <- results_df$Model[1]
+cat("\nThe best model based on Mean AUC from cross-validation is:", best_model_name, "\n")
+cat("With Mean AUC of:", results_df$Mean_AUC[1], "\n")
+}
+
+
+cross_val_results = results(models, x_balanced_scaled,y_balanced)
+metric(cross_val_results)
+```
+Step 19: Compare accuracy, auc, sensitivity and specificity of different models (3 significant features) 
+
+```{r}
+models1 = model_list(x_balanced_scaled1,y_balanced1)
+cross_val_results1 = results(models1, x_balanced_scaled1,y_balanced1)
+metric(cross_val_results1)
+```
+
